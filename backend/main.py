@@ -1,20 +1,46 @@
-from langchain_core.messages import HumanMessage
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain.tools import tool
-from langchain.agents import create_agent
-from dotenv import load_dotenv
+import ast
+from contextvars import ContextVar
+import math
+import re
+from pathlib import Path
+
 import pandas as pd
+from dotenv import load_dotenv
+from duckduckgo_search import DDGS
 from pydantic import BaseModel, Field
 
+from langchain.agents import create_agent
+from langchain.tools import tool
+from langchain_core.messages import HumanMessage
+from langchain_google_genai import ChatGoogleGenerativeAI
+
+
+# ==================================================
+# CONFIGURATION & DATASET MANAGEMENT
+# ==================================================
 
 load_dotenv()
 
+BASE_DIR = Path(__file__).resolve().parent
+default_df = pd.read_csv(BASE_DIR / "data" / "sales.csv")
 
-# ==================================================
-# LOAD DATASET
-# ==================================================
+# Context variable to track active session ID per thread/request
+current_session_id_var: ContextVar[str] = ContextVar("current_session_id_var", default="default")
 
-df = pd.read_csv("data/sales.csv")
+# Multi-session dataset store: session_id -> pd.DataFrame
+session_datasets = {}
+
+
+def get_dataset_for_session(session_id: str = "default") -> pd.DataFrame:
+    return session_datasets.get(session_id, default_df)
+
+
+def set_dataset_for_session(session_id: str, dataframe: pd.DataFrame):
+    session_datasets[session_id] = dataframe
+
+
+# Backward compatibility export
+df = default_df
 
 
 # ==================================================
@@ -22,59 +48,42 @@ df = pd.read_csv("data/sales.csv")
 # ==================================================
 
 class DataAnalysisRequest(BaseModel):
-
     operation: str = Field(
         description=(
             "The analysis operation to perform. "
-            "Allowed operations are: "
-            "average, sum, max, min, group_sum, "
-            "group_max, top_n, filter_sum, compare."
+            "Allowed operations are: average, sum, max, min, "
+            "group_sum, group_max, top_n, filter_sum, compare."
         )
     )
 
     column: str | None = Field(
         default=None,
-        description=(
-            "The numeric column to analyze, "
-            "such as Sales or Quantity."
-        )
+        description="The numeric column to analyze.",
     )
 
     group_by: str | None = Field(
         default=None,
-        description=(
-            "The column to group by, "
-            "such as City or Category."
-        )
+        description="The column to group by.",
     )
 
     n: int | None = Field(
         default=None,
-        description=(
-            "Number of results for a top_n operation."
-        )
+        description="Number of results for a top_n operation.",
     )
 
     filter_column: str | None = Field(
         default=None,
-        description=(
-            "The column to filter by, "
-            "such as City or Category."
-        )
+        description="The column to filter by.",
     )
 
     filter_value: str | None = Field(
         default=None,
-        description=(
-            "The first value to filter for."
-        )
+        description="The first value to filter for.",
     )
 
     compare_value: str | None = Field(
         default=None,
-        description=(
-            "The second value to compare against."
-        )
+        description="The second value to compare against.",
     )
 
 
@@ -82,7 +91,10 @@ class DataAnalysisRequest(BaseModel):
 # PANDAS ANALYSIS ENGINE
 # ==================================================
 
-def perform_analysis(request: DataAnalysisRequest) -> str:
+def perform_analysis(request: DataAnalysisRequest, target_df: pd.DataFrame | None = None) -> str:
+
+    if target_df is None or target_df.empty:
+        target_df = default_df
 
     operation = request.operation.lower().strip()
     column = request.column
@@ -92,377 +104,354 @@ def perform_analysis(request: DataAnalysisRequest) -> str:
     filter_value = request.filter_value
     compare_value = request.compare_value
 
-    # --------------------------------------------------
-    # Validate columns
-    # --------------------------------------------------
-
-    if column and column not in df.columns:
-
+    if column and column not in target_df.columns:
         return (
-            f"Column '{column}' does not exist. "
-            f"Available columns are: {', '.join(df.columns)}"
+            f"Column '{column}' does not exist in the active dataset. "
+            f"Available columns are: {', '.join(target_df.columns)}"
         )
 
-    if group_by and group_by not in df.columns:
-
+    if group_by and group_by not in target_df.columns:
         return (
-            f"Column '{group_by}' does not exist. "
-            f"Available columns are: {', '.join(df.columns)}"
+            f"Column '{group_by}' does not exist in the active dataset. "
+            f"Available columns are: {', '.join(target_df.columns)}"
         )
 
-    if filter_column and filter_column not in df.columns:
-
+    if filter_column and filter_column not in target_df.columns:
         return (
-            f"Column '{filter_column}' does not exist. "
-            f"Available columns are: {', '.join(df.columns)}"
+            f"Column '{filter_column}' does not exist in the active dataset. "
+            f"Available columns are: {', '.join(target_df.columns)}"
         )
-
-    # ==================================================
-    # AVERAGE
-    # ==================================================
 
     if operation == "average":
-
         if not column:
             return "Please specify which column to average."
-
-        if not pd.api.types.is_numeric_dtype(df[column]):
+        if not pd.api.types.is_numeric_dtype(target_df[column]):
             return f"Column '{column}' is not numeric."
-
-        result = df[column].mean()
-
+        result = target_df[column].mean()
         return f"The average {column} is {result:.2f}."
 
-    # ==================================================
-    # SUM
-    # ==================================================
-
     if operation == "sum":
-
         if not column:
             return "Please specify which column to sum."
-
-        if not pd.api.types.is_numeric_dtype(df[column]):
+        if not pd.api.types.is_numeric_dtype(target_df[column]):
             return f"Column '{column}' is not numeric."
-
-        result = df[column].sum()
-
+        result = target_df[column].sum()
         return f"The total {column} is {result:.2f}."
 
-    # ==================================================
-    # MAXIMUM
-    # ==================================================
-
     if operation == "max":
-
         if not column:
-            return (
-                "Please specify which column to find "
-                "the maximum for."
-            )
-
-        if not pd.api.types.is_numeric_dtype(df[column]):
+            return "Please specify which column to find the maximum for."
+        if not pd.api.types.is_numeric_dtype(target_df[column]):
             return f"Column '{column}' is not numeric."
+        row = target_df.loc[target_df[column].idxmax()]
 
-        row = df.loc[df[column].idxmax()]
-
-        if "Product" in df.columns:
-
+        label_cols = [c for c in target_df.columns if c != column and not pd.api.types.is_numeric_dtype(target_df[c])]
+        if label_cols:
+            primary_label = label_cols[0]
             return (
-                f"The highest {column} is "
-                f"{row[column]:.2f}, "
-                f"for the product {row['Product']}."
+                f"The highest {column} is {row[column]:.2f}, "
+                f"for ({primary_label}: {row[primary_label]})."
             )
-
-        return (
-            f"The highest {column} is "
-            f"{row[column]:.2f}."
-        )
-
-    # ==================================================
-    # MINIMUM
-    # ==================================================
+        return f"The highest {column} is {row[column]:.2f}."
 
     if operation == "min":
-
         if not column:
-            return (
-                "Please specify which column to find "
-                "the minimum for."
-            )
-
-        if not pd.api.types.is_numeric_dtype(df[column]):
+            return "Please specify which column to find the minimum for."
+        if not pd.api.types.is_numeric_dtype(target_df[column]):
             return f"Column '{column}' is not numeric."
+        row = target_df.loc[target_df[column].idxmin()]
 
-        row = df.loc[df[column].idxmin()]
-
-        if "Product" in df.columns:
-
+        label_cols = [c for c in target_df.columns if c != column and not pd.api.types.is_numeric_dtype(target_df[c])]
+        if label_cols:
+            primary_label = label_cols[0]
             return (
-                f"The lowest {column} is "
-                f"{row[column]:.2f}, "
-                f"for the product {row['Product']}."
+                f"The lowest {column} is {row[column]:.2f}, "
+                f"for ({primary_label}: {row[primary_label]})."
             )
-
-        return (
-            f"The lowest {column} is "
-            f"{row[column]:.2f}."
-        )
-
-    # ==================================================
-    # GROUP SUM
-    # ==================================================
+        return f"The lowest {column} is {row[column]:.2f}."
 
     if operation == "group_sum":
-
         if not column or not group_by:
-
-            return (
-                "Both a metric column and a "
-                "group-by column are required."
-            )
-
-        if not pd.api.types.is_numeric_dtype(df[column]):
-
+            return "Both a metric column and a group-by column are required."
+        if not pd.api.types.is_numeric_dtype(target_df[column]):
             return f"Column '{column}' is not numeric."
-
         result = (
-            df.groupby(group_by)[column]
+            target_df.groupby(group_by)[column]
             .sum()
             .sort_values(ascending=False)
         )
-
-        return (
-            f"Total {column} by {group_by}:\n\n"
-            f"{result.to_string()}"
-        )
-
-    # ==================================================
-    # GROUP MAX
-    # ==================================================
+        return f"Total {column} by {group_by}:\n\n{result.to_string()}"
 
     if operation == "group_max":
-
         if not column or not group_by:
-
-            return (
-                "Both a metric column and a "
-                "group-by column are required."
-            )
-
-        if not pd.api.types.is_numeric_dtype(df[column]):
-
+            return "Both a metric column and a group-by column are required."
+        if not pd.api.types.is_numeric_dtype(target_df[column]):
             return f"Column '{column}' is not numeric."
-
-        result = df.groupby(group_by)[column].sum()
-
+        result = target_df.groupby(group_by)[column].sum()
         group = result.idxmax()
         value = result.max()
-
-        return (
-            f"{group} has the highest total "
-            f"{column} with {value:.2f}."
-        )
-
-    # ==================================================
-    # TOP N
-    # ==================================================
+        return f"'{group}' has the highest total {column} with {value:.2f}."
 
     if operation == "top_n":
-
         if not column:
             return "Please specify which column to rank by."
-
-        if not pd.api.types.is_numeric_dtype(df[column]):
-
+        if not pd.api.types.is_numeric_dtype(target_df[column]):
             return f"Column '{column}' is not numeric."
-
         if n is None:
             n = 3
-
         if n <= 0:
-
-            return (
-                "The number of results must be "
-                "greater than zero."
-            )
-
-        n = min(n, len(df))
-
-        result = df.nlargest(n, column)
-
-        return (
-            f"Top {n} results by {column}:\n\n"
-            f"{result.to_string(index=False)}"
-        )
-
-    # ==================================================
-    # FILTER SUM
-    # ==================================================
+            return "The number of results must be greater than zero."
+        n = min(n, len(target_df))
+        result = target_df.nlargest(n, column)
+        return f"Top {n} results by {column}:\n\n{result.to_string(index=False)}"
 
     if operation == "filter_sum":
-
         if not column:
-
             return "Please specify which column to sum."
-
         if not filter_column or not filter_value:
-
-            return (
-                "Both a filter column and "
-                "filter value are required."
-            )
-
-        if not pd.api.types.is_numeric_dtype(df[column]):
-
+            return "Both a filter column and filter value are required."
+        if not pd.api.types.is_numeric_dtype(target_df[column]):
             return f"Column '{column}' is not numeric."
-
-        filtered = df[
-            df[filter_column]
+        filtered = target_df[
+            target_df[filter_column]
             .astype(str)
             .str.lower()
             == str(filter_value).lower()
         ]
-
         if filtered.empty:
-
-            return (
-                f"No data was found where "
-                f"{filter_column} is '{filter_value}'."
-            )
-
+            return f"No data was found where {filter_column} is '{filter_value}'."
         result = filtered[column].sum()
-
-        return (
-            f"The total {column} for "
-            f"{filter_value} is {result:.2f}."
-        )
-
-    # ==================================================
-    # COMPARE
-    # ==================================================
+        return f"The total {column} for '{filter_value}' is {result:.2f}."
 
     if operation == "compare":
-
         if not column:
-
-            return (
-                "Please specify which column "
-                "to compare."
-            )
-
+            return "Please specify which column to compare."
         if not filter_column:
-
-            return (
-                "Please specify which column "
-                "to compare values from."
-            )
-
+            return "Please specify which column to compare values from."
         if not filter_value or not compare_value:
-
-            return (
-                "Two values are required for "
-                "comparison."
-            )
-
-        if not pd.api.types.is_numeric_dtype(df[column]):
-
+            return "Two values are required for comparison."
+        if not pd.api.types.is_numeric_dtype(target_df[column]):
             return f"Column '{column}' is not numeric."
 
-        # First value
-        first_data = df[
-            df[filter_column]
+        first_data = target_df[
+            target_df[filter_column]
             .astype(str)
             .str.lower()
             == str(filter_value).lower()
         ]
-
-        # Second value
-        second_data = df[
-            df[filter_column]
+        second_data = target_df[
+            target_df[filter_column]
             .astype(str)
             .str.lower()
             == str(compare_value).lower()
         ]
 
         if first_data.empty:
-
-            return (
-                f"No data was found for "
-                f"'{filter_value}'."
-            )
-
+            return f"No data was found for '{filter_value}' in {filter_column}."
         if second_data.empty:
-
-            return (
-                f"No data was found for "
-                f"'{compare_value}'."
-            )
+            return f"No data was found for '{compare_value}' in {filter_column}."
 
         first_total = first_data[column].sum()
         second_total = second_data[column].sum()
-
         difference = abs(first_total - second_total)
 
         if first_total > second_total:
-
             winner = filter_value
             loser = compare_value
-
         elif second_total > first_total:
-
             winner = compare_value
             loser = filter_value
-
         else:
-
             return (
-                f"{filter_value} and {compare_value} "
-                f"have the same total {column}: "
-                f"{first_total:.2f}."
+                f"'{filter_value}' and '{compare_value}' "
+                f"have the same total {column}: {first_total:.2f}."
             )
 
         return (
             f"{filter_value}: {first_total:.2f}\n"
             f"{compare_value}: {second_total:.2f}\n\n"
-            f"{winner} had higher total {column} "
-            f"than {loser} by {difference:.2f}."
+            f"'{winner}' had higher total {column} than '{loser}' by {difference:.2f}."
         )
 
-    # ==================================================
-    # UNKNOWN OPERATION
-    # ==================================================
-
-    return (
-        f"I don't know how to perform the "
-        f"operation '{request.operation}'."
-    )
+    return f"I don't know how to perform the operation '{request.operation}'."
 
 
 # ==================================================
-# TOOLS
+# AGENT TOOLS
 # ==================================================
 
 @tool
+def advanced_calculator(expression: str) -> str:
+    """
+    Evaluates mathematical expressions including addition, subtraction,
+    multiplication, division, percentages, powers/exponents, square roots, and parentheses.
+    """
+    print(f"Advanced calculator tool called with expression: {expression}")
+
+    try:
+        expr = expression.strip()
+
+        expr = re.sub(
+            r'(\d+(?:\.\d+)?)\%\s*of\s*(\d+(?:\.\d+)?)',
+            r'(\1 / 100) * \2',
+            expr,
+            flags=re.IGNORECASE
+        )
+        expr = re.sub(r'(\d+(?:\.\d+)?)\%', r'(\1 / 100)', expr)
+        expr = expr.replace('^', '**')
+
+        allowed_funcs = {
+            'sqrt': math.sqrt,
+            'abs': abs,
+            'round': round,
+            'pow': math.pow,
+            'ceil': math.ceil,
+            'floor': math.floor,
+            'log': math.log,
+            'sin': math.sin,
+            'cos': math.cos,
+            'tan': math.tan,
+            'pi': math.pi,
+            'e': math.e,
+        }
+
+        node = ast.parse(expr, mode='eval')
+
+        def _eval(n):
+            if isinstance(n, ast.Expression):
+                return _eval(n.body)
+            elif isinstance(n, ast.Constant):
+                return n.value
+            elif isinstance(n, ast.Name):
+                if n.id in allowed_funcs:
+                    return allowed_funcs[n.id]
+                raise ValueError(f"Unsupported symbol '{n.id}'")
+            elif isinstance(n, ast.UnaryOp):
+                op = n.op
+                val = _eval(n.operand)
+                if isinstance(op, ast.USub):
+                    return -val
+                elif isinstance(op, ast.UAdd):
+                    return +val
+                raise ValueError(f"Unsupported unary operator {type(op)}")
+            elif isinstance(n, ast.BinOp):
+                left = _eval(n.left)
+                right = _eval(n.right)
+                op = n.op
+                if isinstance(op, ast.Add):
+                    return left + right
+                elif isinstance(op, ast.Sub):
+                    return left - right
+                elif isinstance(op, ast.Mult):
+                    return left * right
+                elif isinstance(op, ast.Div):
+                    return left / right
+                elif isinstance(op, ast.FloorDiv):
+                    return left // right
+                elif isinstance(op, ast.Mod):
+                    return left % right
+                elif isinstance(op, ast.Pow):
+                    return left ** right
+                raise ValueError(f"Unsupported binary operator {type(op)}")
+            elif isinstance(n, ast.Call):
+                func = _eval(n.func)
+                args = [_eval(arg) for arg in n.args]
+                return func(*args)
+            else:
+                raise ValueError(f"Unsupported AST node {type(n)}")
+
+        res = _eval(node)
+        if isinstance(res, float) and res.is_integer():
+            res = int(res)
+
+        return f"Calculation result for '{expression}': {res}"
+
+    except Exception as e:
+        return f"Error evaluating mathematical expression '{expression}': {e}"
+
+
+@tool
 def calculator(a: float, b: float) -> str:
-    """Useful for performing basic addition calculations."""
+    """Legacy calculator tool for addition."""
+    return advanced_calculator.invoke({"expression": f"{a} + {b}"})
 
-    print("Calculator tool has been called.")
 
-    return (
-        f"The sum of {a} and {b} is {a + b}"
+@tool
+def text_utilities(action: str, text: str) -> str:
+    """
+    Performs specialized text transformation tasks on user-provided text.
+    """
+    print(f"Text utilities tool called with action '{action}'")
+
+    action_clean = action.lower().strip()
+
+    prompt_map = {
+        "rewrite_professionally": "Rewrite the following text professionally for a formal business context:\n\n",
+        "summarize": "Summarize the following text:\n\n",
+        "make_concise": "Make the following text concise and to the point:\n\n",
+        "explain_simply": "Explain the following paragraph in very simple terms:\n\n",
+        "fix_grammar": "Fix all grammar and spelling errors:\n\n",
+        "bullet_points": "Convert the following text into bullet points:\n\n",
+    }
+
+    instructions = prompt_map.get(
+        action_clean,
+        f"Perform '{action}' on the text:\n\n"
     )
+
+    try:
+        model = ChatGoogleGenerativeAI(
+            model="gemini-3.5-flash",
+            temperature=0.3,
+        )
+
+        response = model.invoke(f"{instructions}{text}")
+
+        content = response.content
+        if isinstance(content, list):
+            text_parts = []
+            for item in content:
+                if isinstance(item, dict) and item.get("type") == "text":
+                    text_parts.append(item.get("text", ""))
+            content = "".join(text_parts)
+
+        return content.strip()
+
+    except Exception as e:
+        return f"Error executing text utility transformation: {e}"
+
+
+@tool
+def web_search(query: str) -> str:
+    """
+    Searches the web for real-time information or questions outside the dataset.
+    """
+    print(f"Web search tool called for query: {query}")
+
+    try:
+        results = list(DDGS().text(query, max_results=5))
+
+        if not results:
+            return f"No web search results found for query: '{query}'"
+
+        formatted = [f"Web Search Results for '{query}':\n"]
+        for i, item in enumerate(results, 1):
+            title = item.get("title", "No Title")
+            snippet = item.get("body", "No Snippet")
+            href = item.get("href", "")
+            formatted.append(f"{i}. {title}\n   Snippet: {snippet}\n   Link: {href}")
+
+        return "\n\n".join(formatted)
+
+    except Exception as e:
+        return f"Failed to perform web search: {e}"
 
 
 @tool
 def say_hello(name: str) -> str:
     """Useful for greeting a user."""
-
     print("Greeting tool has been called.")
-
-    return (
-        f"Hello {name}, I hope you are well today."
-    )
+    return f"Hello {name}, I hope you are well today."
 
 
 @tool
@@ -476,35 +465,13 @@ def structured_analysis(
     compare_value: str | None = None,
 ) -> str:
     """
-    Use this tool for questions that require
-    analyzing the sales dataset.
-
-    Examples:
-
-    "What is the average sales?"
-    -> average / Sales
-
-    "What are the total sales?"
-    -> sum / Sales
-
-    "Which city has the highest sales?"
-    -> group_max / Sales / City
-
-    "What are the total sales by category?"
-    -> group_sum / Sales / Category
-
-    "What are the top 3 products?"
-    -> top_n / Sales / n=3
-
-    "How much did Bangalore make?"
-    -> filter_sum / Sales / City / Bangalore
-
-    "Compare Bangalore and Mumbai sales."
-    -> compare / Sales / City /
-       Bangalore / Mumbai
+    Use this tool for questions that require analyzing a tabular dataset (uploaded CSV or default dataset).
     """
-
     print("Structured analysis tool has been called.")
+
+    # Retrieve current active session ID from context
+    sid = current_session_id_var.get()
+    target_df = get_dataset_for_session(sid)
 
     request = DataAnalysisRequest(
         operation=operation,
@@ -516,14 +483,11 @@ def structured_analysis(
         compare_value=compare_value,
     )
 
-    return perform_analysis(request)
+    return perform_analysis(request, target_df)
 
 
-# ==================================================
-# MAIN CHATBOT
-# ==================================================
-
-def main():
+def create_chatbot(session_id: str = "default"):
+    target_df = get_dataset_for_session(session_id)
 
     model = ChatGoogleGenerativeAI(
         model="gemini-3.5-flash",
@@ -531,125 +495,64 @@ def main():
     )
 
     tools = [
-        calculator,
-        say_hello,
+        advanced_calculator,
+        text_utilities,
+        web_search,
         structured_analysis,
+        say_hello,
     ]
 
+    cols_str = ", ".join(target_df.columns)
+
     system_prompt = f"""
-    You are a helpful AI data assistant.
+    You are a powerful AI assistant equipped with specialized tools.
 
-    You have access to a sales dataset.
+    YOUR TOOLS & WHEN TO USE THEM:
 
-    Dataset columns:
-    {', '.join(df.columns)}
+    1. `structured_analysis`: Use whenever the user asks a question about the active dataset.
+       Current Dataset Columns: {cols_str}
+       Total Rows: {len(target_df)}
+       - Average: operation = average, column = <numeric_column>
+       - Total: operation = sum, column = <numeric_column>
+       - Highest value by group: operation = group_max, column = <numeric_column>, group_by = <category_column>
+       - Group breakdown: operation = group_sum, column = <numeric_column>, group_by = <category_column>
+       - Top items: operation = top_n, column = <numeric_column>, n = count
+       - Filter sum: operation = filter_sum, column = <numeric_column>, filter_column = <col>, filter_value = <val>
+       - Compare two items: operation = compare, column = <numeric_column>, filter_column = <col>, filter_value = X, compare_value = Y
 
-    Dataset rows:
-    {len(df)}
+    2. `advanced_calculator`: Use for ANY math calculations, expressions, percentages, powers, or square roots requested by the user.
+
+    3. `text_utilities`: Use when the user asks to edit, rewrite, summarize, explain, or format text/email/paragraphs.
+
+    4. `web_search`: Use when the user asks for real-time information, web news, external facts, or questions NOT related to the active dataset.
+
+    5. `say_hello`: Use to greet the user.
 
     IMPORTANT RULES:
-
-    1. When the user asks a question about
-       the dataset, use structured_analysis.
-
-    2. Never calculate dataset results yourself.
-
-    3. Never use calculator for dataset questions.
-
-    4. Choose the correct operation.
-
-    5. Average sales:
-       operation = average
-       column = Sales
-
-    6. Total sales:
-       operation = sum
-       column = Sales
-
-    7. Highest sales by city/category:
-       operation = group_max
-       column = Sales
-       group_by = City or Category
-
-    8. Sales by category/city:
-       operation = group_sum
-       column = Sales
-       group_by = Category or City
-
-    9. Top products:
-       operation = top_n
-       column = Sales
-       n = requested number
-
-    10. Sales for a specific city/category:
-        operation = filter_sum
-        column = Sales
-        filter_column = relevant column
-        filter_value = requested value
-
-    11. Comparing two cities, categories,
-        products, or other values:
-
-        operation = compare
-        column = Sales
-        filter_column = relevant column
-        filter_value = first value
-        compare_value = second value
-
-        Example:
-
-        "Compare Bangalore and Mumbai sales."
-
-        operation = compare
-        column = Sales
-        filter_column = City
-        filter_value = Bangalore
-        compare_value = Mumbai
-
-    12. Use conversation history to understand
-        follow-up questions such as:
-
-        "How much did it make?"
-
-        "Which one was better?"
-
-        "What about Mumbai?"
-
-        "How much more did it make?"
-
-    13. After the tool returns its result,
-        explain it clearly.
-
-    14. Do not repeatedly call the same tool
-        for the same question.
+    - Never perform dataset queries yourself; always use `structured_analysis`.
+    - Always use the exact column names present in the active dataset: {cols_str}.
+    - Always respond naturally and explain tool outputs clearly.
     """
 
-    agent = create_agent(
+    return create_agent(
         model=model,
         tools=tools,
         system_prompt=system_prompt,
     )
 
+
+def main():
+    agent = create_chatbot("default")
+
     print("Welcome! I'm your AI assistant.")
     print("Type 'quit' to exit.")
-
-    print(
-        "You can ask me to perform calculations, "
-        "greet someone, or analyze the dataset."
-    )
-
-    # ==================================================
-    # CONVERSATION MEMORY
-    # ==================================================
 
     conversation = []
 
     while True:
-
         user_input = input("\nYou: ").strip()
 
         if user_input.lower() == "quit":
-
             print("Goodbye!")
             break
 
@@ -659,86 +562,36 @@ def main():
         print("\nAssistant: ", end="")
 
         try:
-
-            # Add user message
-            conversation.append(
-                HumanMessage(
-                    content=user_input
-                )
-            )
-
+            conversation.append(HumanMessage(content=user_input))
             response_messages = []
 
-            # Send conversation to agent
             for chunk in agent.stream(
-                {
-                    "messages": conversation
-                },
-                config={
-                    "recursion_limit": 10
-                },
+                {"messages": conversation},
+                config={"recursion_limit": 10},
             ):
+                if "model" not in chunk:
+                    continue
 
-                if "model" in chunk:
+                messages = chunk["model"]["messages"]
+                for message in messages:
+                    if message not in response_messages:
+                        response_messages.append(message)
 
-                    messages = chunk[
-                        "model"
-                    ]["messages"]
+                    if message.type != "ai":
+                        continue
 
-                    for message in messages:
+                    if isinstance(message.content, list):
+                        for item in message.content:
+                            if isinstance(item, dict) and item.get("type") == "text":
+                                print(item.get("text", ""), end="")
+                    elif message.content:
+                        print(message.content, end="")
 
-                        if message not in response_messages:
-
-                            response_messages.append(
-                                message
-                            )
-
-                        if message.type == "ai":
-
-                            if isinstance(
-                                message.content,
-                                list
-                            ):
-
-                                for item in message.content:
-
-                                    if (
-                                        isinstance(
-                                            item,
-                                            dict
-                                        )
-                                        and item.get(
-                                            "type"
-                                        ) == "text"
-                                    ):
-
-                                        print(
-                                            item.get(
-                                                "text",
-                                                ""
-                                            ),
-                                            end=""
-                                        )
-
-                            elif message.content:
-
-                                print(
-                                    message.content,
-                                    end=""
-                                )
-
-            # Save response messages
-            conversation.extend(
-                response_messages
-            )
-
+            conversation.extend(response_messages)
             print()
 
         except Exception as e:
-
-            print(
-                f"\nSomething went wrong: {e}"
-            )
+            print(f"\nSomething went wrong: {e}")
 
 
 if __name__ == "__main__":
