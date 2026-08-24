@@ -50,6 +50,19 @@ def get_dataset_metadata(session_id: str) -> dict:
 # HEALTH CHECK
 # ==================================================
 
+@app.route("/", methods=["GET"])
+def home():
+    return jsonify({
+        "status": "ok",
+        "message": "Basic Chatbot API is running",
+        "endpoints": [
+            "/health",
+            "/chat",
+            "/upload",
+            "/dataset"
+        ]
+    })
+
 @app.route("/health", methods=["GET"])
 def health():
     return jsonify({
