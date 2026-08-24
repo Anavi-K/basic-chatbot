@@ -1,6 +1,8 @@
 import { useState, useRef, useEffect } from "react";
 import "./App.css";
 
+const API_URL = "https://chatbot-xven.onrender.com";
+
 const STORAGE_KEY = "chatbot_conversations_v1";
 
 function App() {
@@ -123,7 +125,7 @@ function App() {
 
     setUploading(true);
     try {
-      const response = await fetch("http://127.0.0.1:5000/upload", {
+      const response = await fetch(`${API_URL}/upload`, {
         method: "POST",
         body: formData,
       });
@@ -191,7 +193,7 @@ function App() {
     setLoading(true);
 
     try {
-      const response = await fetch("http://127.0.0.1:5000/chat", {
+      const response = await fetch(`${API_URL}/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
