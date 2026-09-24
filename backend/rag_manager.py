@@ -23,8 +23,8 @@ def get_embedding_function():
     Returns HuggingFaceEmbeddings for local, zero-cost, high-performance RAG vector embeddings.
     """
     api_key = os.environ.get("GOOGLE_API_KEY")
-    use_google_embeddings = os.environ.get("USE_GOOGLE_EMBEDDINGS", "false").lower() == "true"
-
+    use_google_embeddings = os.environ.get("USE_GOOGLE_EMBEDDINGS", "true").lower() == "true"
+    
     if api_key and use_google_embeddings:
         try:
             from langchain_google_genai import GoogleGenerativeAIEmbeddings
