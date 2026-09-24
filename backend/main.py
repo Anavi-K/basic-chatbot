@@ -14,6 +14,8 @@ from langchain.tools import tool
 from langchain_core.messages import HumanMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
 
+from rag_manager import rag_instance
+
 
 # ==================================================
 # CONFIGURATION & DATASET MANAGEMENT
@@ -281,6 +283,26 @@ def perform_analysis(request: DataAnalysisRequest, target_df: pd.DataFrame | Non
 # ==================================================
 
 @tool
+def knowledge_base_search(query: str) -> str:
+    """
+    Retrieves grounded context from the company knowledge base (company overview, policies, product specs, FAQs).
+    Includes similarity thresholding for hallucination guardrail protection.
+    """
+    print(f"Knowledge base search tool called for query: '{query}'")
+    result = rag_instance.query_with_guardrail(query)
+
+    if not result.get("success"):
+        return result.get("message", "I don't have enough information in my knowledge base to answer that.")
+
+    return (
+        f"RETRIEVED KNOWLEDGE CONTEXT (Confidence Score: {result.get('best_score')}):\n\n"
+        f"{result.get('context')}\n\n"
+        f"INSTRUCTION: Answer the question accurately using ONLY the retrieved context above. "
+        f"Do not invent unmentioned information."
+    )
+
+
+@tool
 def advanced_calculator(expression: str) -> str:
     """
     Evaluates mathematical expressions including addition, subtraction,
@@ -424,7 +446,7 @@ def text_utilities(action: str, text: str) -> str:
 @tool
 def web_search(query: str) -> str:
     """
-    Searches the web for real-time information or questions outside the dataset.
+    Searches the web for real-time information or questions outside the dataset and knowledge base.
     """
     print(f"Web search tool called for query: {query}")
 
@@ -469,7 +491,6 @@ def structured_analysis(
     """
     print("Structured analysis tool has been called.")
 
-    # Retrieve current active session ID from context
     sid = current_session_id_var.get()
     target_df = get_dataset_for_session(sid)
 
@@ -495,10 +516,11 @@ def create_chatbot(session_id: str = "default"):
     )
 
     tools = [
+        knowledge_base_search,
+        structured_analysis,
         advanced_calculator,
         text_utilities,
         web_search,
-        structured_analysis,
         say_hello,
     ]
 
@@ -509,29 +531,26 @@ def create_chatbot(session_id: str = "default"):
 
     YOUR TOOLS & WHEN TO USE THEM:
 
-    1. `structured_analysis`: Use whenever the user asks a question about the active dataset.
+    1. `knowledge_base_search`: Use for questions about company history, locations, operating hours, shipping/return policies, product catalog specs, warranty, or FAQs.
+       - Built-in Hallucination Guardrail: Returns "I don't have enough information in my knowledge base to answer that." if relevance is insufficient.
+
+    2. `structured_analysis`: Use whenever the user asks a question about the active CSV dataset.
        Current Dataset Columns: {cols_str}
        Total Rows: {len(target_df)}
-       - Average: operation = average, column = <numeric_column>
-       - Total: operation = sum, column = <numeric_column>
-       - Highest value by group: operation = group_max, column = <numeric_column>, group_by = <category_column>
-       - Group breakdown: operation = group_sum, column = <numeric_column>, group_by = <category_column>
-       - Top items: operation = top_n, column = <numeric_column>, n = count
-       - Filter sum: operation = filter_sum, column = <numeric_column>, filter_column = <col>, filter_value = <val>
-       - Compare two items: operation = compare, column = <numeric_column>, filter_column = <col>, filter_value = X, compare_value = Y
 
-    2. `advanced_calculator`: Use for ANY math calculations, expressions, percentages, powers, or square roots requested by the user.
+    3. `advanced_calculator`: Use for ANY math calculations, expressions, percentages, powers, or square roots requested by the user.
 
-    3. `text_utilities`: Use when the user asks to edit, rewrite, summarize, explain, or format text/email/paragraphs.
+    4. `text_utilities`: Use when the user asks to edit, rewrite, summarize, explain, or format text/email/paragraphs.
 
-    4. `web_search`: Use when the user asks for real-time information, web news, external facts, or questions NOT related to the active dataset.
+    5. `web_search`: Use when the user asks for real-time external web news or questions NOT related to the knowledge base or active dataset.
 
-    5. `say_hello`: Use to greet the user.
+    6. `say_hello`: Use to greet the user.
 
     IMPORTANT RULES:
-    - Never perform dataset queries yourself; always use `structured_analysis`.
-    - Always use the exact column names present in the active dataset: {cols_str}.
-    - Always respond naturally and explain tool outputs clearly.
+    - Never guess company policies or knowledge base details; use `knowledge_base_search`.
+    - If `knowledge_base_search` returns "I don't have enough information in my knowledge base to answer that.", repeat that exact guardrail statement to the user.
+    - Never perform dataset queries manually; always use `structured_analysis`.
+    - Respond naturally, clearly, and concisely.
     """
 
     return create_agent(

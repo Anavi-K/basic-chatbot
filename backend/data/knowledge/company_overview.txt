@@ -1,0 +1,25 @@
+==================================================
+ANAVI CHATBOT ENTERPRISES - COMPANY OVERVIEW
+==================================================
+
+About Us:
+Anavi Chatbot Enterprises was founded in 2024 to provide cutting-edge conversational AI and data analysis solutions for enterprise clients worldwide. Our mission is to bridge the gap between human questions and complex corporate data.
+
+Headquarters & Regional Office Locations:
+- Global Headquarters: Tech Park Tower 4, Bangalore, Karnataka, India.
+- Regional Office (North America): 500 Market Street, San Francisco, CA, USA.
+- Regional Office (Europe): 42 Tech Avenue, London, UK. Europe Regional Office is located in London.
+
+Operating Hours & Support Availability:
+- Customer Support Hours: Monday to Friday, 9:00 AM to 6:00 PM IST (Indian Standard Time).
+- Technical Emergency Support: 24/7 coverage for enterprise plan subscribers.
+
+Core Product Offerings:
+1. Anavi Data Assistant: An intelligent conversational data agent that connects to SQL databases and CSV spreadsheets to provide instant business insights.
+2. Anavi RAG Engine: Enterprise Knowledge Base Search powered by local vector databases (ChromaDB) and Google Gemini LLMs.
+3. Anavi Smart Analytics: Predictive forecasting and sales trend modeling tool.
+
+Security & Compliance:
+- ISO 27001 Certified for Information Security Management.
+- GDPR & CCPA compliant data handling procedures.
+- All customer vector database embeddings are hosted locally on secure customer infrastructure (ChromaDB local persistence).

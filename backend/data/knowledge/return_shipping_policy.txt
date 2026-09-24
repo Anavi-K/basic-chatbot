@@ -1,0 +1,24 @@
+==================================================
+RETURN, REFUND & SHIPPING POLICY
+==================================================
+
+1. Standard Return Window:
+- Customers may return hardware devices or physical products within 30 calendar days from the date of delivery.
+- Products must be returned in their original packaging, unused, and accompanied by proof of purchase / order invoice.
+
+2. Non-Returnable Items:
+- Custom software license subscriptions after initial activation.
+- Customized enterprise hardware configurations.
+- Downloadable digital goods and API tokens.
+
+3. Refund Process:
+- Once your returned item is received and inspected at our Bangalore distribution center, we will notify you via email regarding the approval or rejection of your refund.
+- Approved refunds will be processed to the original payment method within 5 to 7 business days.
+
+4. Domestic & International Shipping Rates:
+- Domestic Shipping (India): Free standard shipping on all orders over ₹2,000. Express 2-day delivery is available for ₹150.
+- International Shipping: Standard international shipping takes 7-14 business days. Shipping costs are calculated at checkout based on destination country and package weight.
+- Custom duties and import taxes for international shipments are the responsibility of the recipient.
+
+5. Damaged or Defective Goods:
+- If you receive a damaged or defective item, report it to support@anavi-ai.com within 48 hours of delivery with photos of the package and item. Replacements will be shipped at zero extra cost.

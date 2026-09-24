@@ -1,0 +1,18 @@
+==================================================
+FREQUENTLY ASKED QUESTIONS (FAQ)
+==================================================
+
+Q1: How do I track my order status?
+A: You can track your order status by logging into your account at https://anavi-ai.com/account/orders or by clicking the tracking link sent in your shipping confirmation email.
+
+Q2: What payment methods do you accept?
+A: We accept all major Credit/Debit Cards (Visa, MasterCard, American Express), UPI (Google Pay, PhonePe, Paytm), Net Banking, and Bank Wire Transfers for enterprise invoices.
+
+Q3: Are volume or bulk discounts available?
+A: Yes! Orders of 10 or more hardware units or enterprise software seats qualify for volume discounts ranging from 10% to 25%. Contact sales@anavi-ai.com for custom quotes.
+
+Q4: How does the AI chatbot protect data privacy?
+A: Our chatbot uses local ChromaDB vector databases for document embeddings. Private knowledge base documents remain strictly on your local server or dedicated private cloud instance and are never used to train public LLM foundation models.
+
+Q5: What should I do if the chatbot gives an incorrect or irrelevant answer?
+A: The chatbot is configured with hallucination guardrail protection. If a question is outside our knowledge base or lacks sufficient confidence, it will politely inform you that it does not have enough information. You can escalate unresolved queries to human support at support@anavi-ai.com.

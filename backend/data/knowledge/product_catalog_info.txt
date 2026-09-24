@@ -1,0 +1,20 @@
+==================================================
+PRODUCT CATALOG & TECHNICAL SPECIFICATIONS
+==================================================
+
+1. Product: Anavi AI Gateway Pro
+- Description: High-throughput hardware AI acceleration gateway for enterprise edge deployment.
+- Specs: Octa-core Neural Processing Unit (NPU), 32GB LPDDR5 RAM, 1TB NVMe Storage, Dual 10GbE Ethernet.
+- Warranty: 3-Year Limited Hardware Warranty with next-business-day advance replacement.
+- Compatible Accessories: Anavi Power Pack Pro, Rack Mount Kit v2.
+
+2. Product: Anavi Smart Sensor X1
+- Description: Internet of Things (IoT) environment and power monitoring sensor.
+- Specs: Temperature (-20°C to 70°C), Humidity (0-100%), Wi-Fi 6 & Bluetooth 5.2 enabled, 2-Year LiPo Battery.
+- Warranty: 1-Year Limited Warranty.
+
+3. Software: Anavi Enterprise RAG Suite
+- Description: Plug-and-play RAG document search solution using ChromaDB vector database and Gemini 3.5 LLM.
+- Deployment Options: On-premise Docker container, Kubernetes Helm chart, or Managed Cloud SaaS.
+- Supported Document Formats: PDF, TXT, Markdown, DOCX, CSV, JSON.
+- Maximum Vector Index Size: Supports up to 10,000,000 document embeddings per cluster instance.
